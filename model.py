@@ -1,4 +1,5 @@
 import math
+from turtle import forward
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -33,6 +34,7 @@ class MHSA(nn.Module):
         )
         self.lnorm = nn.LayerNorm(enc_dim)
         self.dropout = nn.Dropout(p_dropout)
+        self.enc_dim = enc_dim
         self.dk = dk
         self.sqrt_dk = math.sqrt(dk)
         self.h = enc_dim // dk
@@ -97,19 +99,18 @@ class MHSA(nn.Module):
         return result.view(b, m, -1)
 
     @lru_cache(maxsize=2)
-    def get_positionals(self, max_length: int, enc_dim: int) -> Tensor:
+    def get_positionals(self, max_length: int) -> Tensor:
         """Create Positionals tensor to be added to the input
 
         Args:
             max_length (int): The maximum length
-            enc_dim (int): the encoder model dimensionality
 
         Returns:
             Tensor: Positional tensor
         """
-        result = torch.zeros(max_length, enc_dim)
-        pos = torch.arange(0, enc_dim).repeat(max_length, 1)
-        i = torch.arange(0, max_length).repeat(enc_dim, 1).T
+        result = torch.zeros(max_length, self.enc_dim)
+        pos = torch.arange(0, self.enc_dim).repeat(max_length, 1)
+        i = torch.arange(0, max_length).repeat(self.enc_dim, 1).T
         result[:, 1::2] = torch.sin(
             pos[:, 1::2] / (10000 ** ((2 * i[:, 1::2]) / self.dk))
             )
