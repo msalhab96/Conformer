@@ -1,5 +1,6 @@
 import math
 from turtle import forward
+from typing import List
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -118,6 +119,41 @@ class MHSA(nn.Module):
             pos[:, 0::2] / (10000 ** ((2 * i[:, 0::2]) / self.dk))
             )
         return result
+
+    def _reshape(self, *args) -> List[Tensor]:
+        """Reshabes all the given list of tensor
+        from [B, M, N] to [B, M, dk, h]
+
+        Returns:
+            List[Tensor]: list of all reshaped tensors
+        """
+        return [
+            item.view(-1, item.shape[1], self.dk, self.h)
+            for item in args
+        ]
+
+    def forward(self, inp: Tensor) -> Tensor:
+        """Passes the input into multi-head attention 
+
+        Args:
+            inp (Tensor): The input tensor
+
+        Returns:
+            Tensor: The result after adding it to positionals
+            and passing it through multi-head self-attention
+        """
+        out = self.lnorm(inp)
+        K = self.fc_key(out)
+        Q = self.fc_query(out)
+        V = self.fc_value(out)
+        max_length = inp.shape[1]
+        positionals = self.get_positionals(max_length).to(self.device)
+        out += positionals
+        (Q, K, V) = self._reshape(Q, K, V)
+        out = self.perform_self_att(Q, K, V)
+        out = self.dropout(out)
+        return inp + out
+
 
 
 class ConvModule(nn.Module):
