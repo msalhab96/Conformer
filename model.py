@@ -28,14 +28,18 @@ class FeedForwardModule(nn.Module):
         enc_dim (int): The encoder dimensionality
         scaling_factor (int): The scaling factor of the linear layer
         p_dropout (float): The dropout probability
+        residual_scaler (float, optional): The residual scaling.
+        Defaults to 0.5.
     """
     def __init__(
             self,
             enc_dim: int,
             scaling_factor: int,
-            p_dropout: float
+            p_dropout: float,
+            residual_scaler=0.5
             ) -> None:
         super().__init__()
+        self.residual_scaler = residual_scaler
         scaled_dim = scaling_factor * enc_dim
         self.lnorm = nn.LayerNorm(enc_dim)
         self.fc1 = nn.Linear(
@@ -49,7 +53,7 @@ class FeedForwardModule(nn.Module):
         self.swish = nn.SiLU()
         self.dropout = nn.Dropout(p_dropout)
 
-    def forward(self, inp: Tensor) -> Tensor:
+    def forward(self, inp: Tensor, x=4) -> Tensor:
         """Passes the given inp through the feed forward
         module
 
@@ -66,7 +70,7 @@ class FeedForwardModule(nn.Module):
         out = self.dropout(out)
         out = self.fc2(out)
         out = self.dropout(out)
-        return inp + out
+        return self.residual_scaler * inp + out
 
 
 class Model(nn.Module):
