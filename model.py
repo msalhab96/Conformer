@@ -7,7 +7,27 @@ from functools import lru_cache
 
 
 class ConformerBlock(nn.Module):
-    pass
+    def __init__(
+            self,
+            enc_dim: int,
+            mhsa_params: dict,
+            conv_module_params: dict,
+            ff_module_params: dict
+            ) -> None:
+        super().__init__()
+        self.ff1 = FeedForwardModule(**ff_module_params)
+        self.mhsa = MHSA(**mhsa_params)
+        self.conv = ConvModule(**conv_module_params)
+        self.ff2 = FeedForwardModule(**ff_module_params)
+        self.lnorm = nn.LayerNorm(enc_dim)
+
+    def forward(self, inp: Tensor):
+        out = self.ff1(inp)
+        out = self.mhsa(out)
+        out = self.conv(out)
+        out = self.ff2(out)
+        out = self.lnorm(out)
+        return out
 
 
 class MHSA(nn.Module):
@@ -279,5 +299,72 @@ class FeedForwardModule(nn.Module):
         return self.residual_scaler * inp + out
 
 
+class Encoder(nn.Module):
+    def __init__(
+            self,
+            enc_dim: int,
+            max_length: int,
+            in_channels: int,
+            kernel_size: int,
+            out_channels: int,
+            mhsa_params: dict,
+            num_mhsa: int,
+            p_dropout: float
+            ) -> None:
+        super().__init__()
+        self.subsampling_conv = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size
+        )
+        self.fc = nn.Linear(
+            in_features=out_channels,
+            out_features=enc_dim
+        )
+        self.dropout = nn.Dropout(p_dropout)
+        self.mhsa_layers = nn.ModuleList([
+            MHSA(**mhsa_params)
+            for _ in range(num_mhsa)
+        ])
+
+    def forward(self, inp: Tensor):
+        inp = inp.permute(0, 2, 1)
+        out = self.subsampling_conv(inp)
+        out = out.permute(0, 2, 1)
+        out = self.fc(out)
+        out = self.dropout(out)
+        for layer in self.mhsa_layers:
+            out = layer(out)
+        return out
+
+
+class Decoder(nn.Module):
+    def __init__(
+            self,
+            enc_dim: int,
+            vocab_size: int
+            ) -> None:
+        super().__init__()
+        self.lstm = nn.LSTM(
+            input_size=enc_dim,
+            hidden_size=vocab_size,
+            batch_first=True
+        )
+
+    def forward(self, inp: Tensor) -> Tensor:
+        output, *_ = self.lstm(inp)
+        return output
+
+
 class Model(nn.Module):
-    pass
+    def __init__(
+            self,
+            enc_params: dict,
+            dec_params: dict
+            ) -> None:
+        super().__init__()
+        self.encoder = Encoder(**enc_params)
+        self.decoder = Decoder(**dec_params)
+
+    def forward(self, inp: Tensor) -> Tensor:
+        return self.decoder(self.encoder(inp))
