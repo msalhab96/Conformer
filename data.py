@@ -9,7 +9,7 @@ from utils import (
     load_audio
     )
 from pathlib import Path
-from typing import List, Union
+from typing import Union
 from torch import Tensor
 
 
@@ -17,8 +17,8 @@ class AudioPipeline(IPipeline):
     """Loads the audio and pass it through different transformation layers
     """
     def __init__(
-            self, 
-            sampling_rate: int, 
+            self,
+            sampling_rate: int,
             n_mel_channels: int,
             win_length: int,
             hop_length: int,
@@ -56,17 +56,17 @@ class AudioPipeline(IPipeline):
             self.sampling_rate,
             n_mels=self.n_mel_channels
             )
-        
+
     @property
     def freq_mask(self):
         return FrequencyMasking(self.F)
 
     def _get_time_mask(self, max_length: int):
         return TimeMasking(
-            int(max_length * self.ps), 
+            int(max_length * self.ps),
             p=self.ps
         )
-    
+
     def _mask(self, x: Tensor) -> Tensor:
         max_length = x.shape[-1]
         time_mask = self._get_time_mask(max_length)
@@ -74,3 +74,18 @@ class AudioPipeline(IPipeline):
         for _ in range(self.n_time_masks):
             x = time_mask(x)
         return x
+
+
+class TextPipeline(IPipeline):
+    """pass the text through different transformation layers
+    """
+    def __init__(self) -> None:
+        super().__init__()
+
+    def run(
+            self,
+            text: str
+            ) -> str:
+        text = text.lower()
+        text = text.strip()
+        return text
