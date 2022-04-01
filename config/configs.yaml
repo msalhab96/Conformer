@@ -23,3 +23,36 @@ data:
     duration: 'duration'
     path: 'path'
     text: 'text'
+
+training:
+  batch_size: 16
+  epochs: 100
+  checkpoints_dir: 'checkpoints'
+  optim:
+    beta1: 0.9
+    beta2: 0.98
+    eps: 1e-9
+    weight_decay: 1e-6
+    warmup_staps: 1e4
+    model_dim: ${model.model_dim}
+    scaler: 0.05
+    step_size: 1
+
+model:
+  model_dim: 512
+  p_dropout: 0.1
+  enc:
+    enc_dim: ${model.model_dim}
+    in_channels: ${data.n_mels}
+    kernel_size: 25 # subsampling layer
+    out_channels: 256 # subsampling layer
+    mhsa_params:
+      enc_dim: ${model.enc.enc_dim}
+      dk: 8
+      p_dropout: ${model.p_dropout}
+      device: ${device}
+    num_mhsa: 4
+    p_dropout: ${model.p_dropout}
+  dec:
+    enc_dim: ${model.enc.enc_dim}
+
