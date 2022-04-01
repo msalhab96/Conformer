@@ -12,7 +12,7 @@ from data_loaders import JSONLoader
 from utils import save_json
 from functools import wraps
 
-OOV = '<OOV>'
+PAD = '<PAD>'
 SOS = '<SOS>'
 EOS = '<EOS>'
 BLANK = '<BLANK>'
@@ -36,18 +36,18 @@ def check_token(token: str) -> Callable:
 
 @dataclass
 class SpecialTokens:
-    _oov: Tuple[str, int] = (None, None)
+    _pad: Tuple[str, int] = (None, None)
     _blank: Tuple[str, int] = (None, None)
     _sos: Tuple[str, int] = (None, None)
     _eos: Tuple[str, int] = (None, None)
 
     @property
-    def oov_id(self):
-        return self._oov[1]
+    def pad_id(self):
+        return self._pad[1]
 
     @property
-    def oov_token(self):
-        return self._oov[0]
+    def pad_token(self):
+        return self._pad[0]
 
     @property
     def blank_id(self):
@@ -126,7 +126,7 @@ class ITokenizer(ABC):
 
 
 class BaseTokenizer(ITokenizer):
-    _oov_key = 'oov'
+    _pad_key = 'pad'
     _sos_key = 'sos'
     _eos_key = 'eos'
     _blank_key = 'blank'
@@ -149,10 +149,10 @@ class BaseTokenizer(ITokenizer):
         self._id_to_token[token_id] = token
         return token_id
 
-    @check_token(OOV)
-    def add_oov_token(self, token=OOV) -> ITokenizer:
+    @check_token(PAD)
+    def add_pad_token(self, token=PAD) -> ITokenizer:
         token_id = self.add_token(token)
-        self.special_tokens._oov = (token, token_id)
+        self.special_tokens._pad = (token, token_id)
         return self
 
     @check_token(BLANK)
@@ -180,8 +180,8 @@ class BaseTokenizer(ITokenizer):
             ))
 
     def __set_special_tokens_dict(self, data: dict) -> None:
-        if self._oov_key in data:
-            self.special_tokens._oov = tuple(data[self._oov_key])
+        if self._pad_key in data:
+            self.special_tokens._pad = tuple(data[self._pad_key])
         if self._blank_key in data:
             self.special_tokens._blank = tuple(data[self._blank_key])
         if self._sos_key in data:
@@ -191,8 +191,8 @@ class BaseTokenizer(ITokenizer):
 
     def __get_special_tokens_dict(self) -> dict:
         data = {}
-        if self.special_tokens.oov_id is not None:
-            data[self._oov_key] = list(self.special_tokens._oov)
+        if self.special_tokens.pad_id is not None:
+            data[self._pad_key] = list(self.special_tokens._pad)
         if self.special_tokens.blank_id is not None:
             data[self._blank_key] = list(self.special_tokens._blank)
         if self.special_tokens.sos_id is not None:
@@ -237,7 +237,7 @@ class BaseTokenizer(ITokenizer):
     def tokens2ids(self, sentence: str) -> List[int]:
         sentence = self.preprocess_tokens(sentence)
         return list(map(
-            lambda x: self._token_to_id.get(x, self.special_tokens.oov_id),
+            lambda x: self._token_to_id.get(x, self.special_tokens.pad_id),
             sentence)
             )
 
