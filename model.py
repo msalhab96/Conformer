@@ -237,6 +237,7 @@ class ConvModule(nn.Module):
         out = self.swish(out)
         out = self.pwise_conv2(out)
         out = self.dropout(out)
+        out = out.permute(0, 2, 1)
         return out + inp
 
 
@@ -303,7 +304,6 @@ class Encoder(nn.Module):
     def __init__(
             self,
             enc_dim: int,
-            max_length: int,
             in_channels: int,
             kernel_size: int,
             out_channels: int,
