@@ -92,7 +92,7 @@ class MHSA(nn.Module):
             [B, M, dk, dk]
         """
         result = self._key_query_matmul(Q, K)
-        result /= self.sqrt_dk
+        result = result / self.sqrt_dk
         return self.softmax(result)
 
     def perform_self_att(
@@ -167,7 +167,7 @@ class MHSA(nn.Module):
         V = self.fc_value(out)
         max_length = inp.shape[1]
         positionals = self.get_positionals(max_length).to(self.device)
-        out += positionals
+        out = out + positionals
         (Q, K, V) = self._reshape(Q, K, V)
         out = self.perform_self_att(Q, K, V)
         out = self.dropout(out)
@@ -308,8 +308,10 @@ class Encoder(nn.Module):
             kernel_size: int,
             out_channels: int,
             mhsa_params: dict,
-            num_mhsa: int,
-            p_dropout: float
+            num_blocks: int,
+            p_dropout: float,
+            conv_mod_params: dict,
+            feed_forward_params: dict
             ) -> None:
         super().__init__()
         self.subsampling_conv = nn.Conv1d(
@@ -322,9 +324,14 @@ class Encoder(nn.Module):
             out_features=enc_dim
         )
         self.dropout = nn.Dropout(p_dropout)
-        self.mhsa_layers = nn.ModuleList([
-            MHSA(**mhsa_params)
-            for _ in range(num_mhsa)
+        self.conformers_layers = nn.ModuleList([
+            ConformerBlock(
+                enc_dim, 
+                mhsa_params, 
+                conv_mod_params,
+                feed_forward_params
+                )
+            for _ in range(num_blocks)
         ])
 
     def forward(self, inp: Tensor):
@@ -333,7 +340,7 @@ class Encoder(nn.Module):
         out = out.permute(0, 2, 1)
         out = self.fc(out)
         out = self.dropout(out)
-        for layer in self.mhsa_layers:
+        for layer in self.conformers_layers:
             out = layer(out)
         return out
 
