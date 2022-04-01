@@ -92,7 +92,29 @@ class Trainer:
         """Iterate over the whole test data and test the models
         for a single epoch
         """
-        # TODO
+        total_loss = 0
+        self.set_test_mode()
+        for x, (y, target_lengths) in tqdm(self.test_loader):
+            x = x.to(self.device)
+            y = y.to(self.device)
+            result = self.model(x)
+            input_lengths = torch.full(
+                size=(y.shape[0],),
+                fill_value=y.shape[1],
+                dtype=torch.long
+                )
+            loss = self.criterion(
+                result,
+                y,
+                input_lengths,
+                target_lengths
+            )
+            total_loss += loss.item()
+        total_loss /= len(self.train_loader)
+        if self.__test_loss_key in self.history:
+            self.history[self.__test_loss_key].append(total_loss)
+        else:
+            self.history[self.__test_loss_key] = [total_loss]
 
     @save_checkpoint
     def train(self):
@@ -118,7 +140,6 @@ class Trainer:
                 target_lengths
             )
             loss.backward()
-            # TODO: adding optimizer schedular step
             self.optimizer.step()
             total_loss += loss.item()
         total_loss /= len(self.train_loader)
