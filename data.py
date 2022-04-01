@@ -37,6 +37,7 @@ class BaseData:
         max_len = 1 + math.ceil(
             max_duration * self.sampling_rate / self.hop_length
             )
+        self.max_len = max_len
         aud = self.audio_pipeline.run(aud_path)
         assert aud.shape[0] == 1, f'expected audio of 1 channels got \
             {aud_path} with {aud.shape[0]} channels'
@@ -45,9 +46,9 @@ class BaseData:
     def _get_padded_tokens(self, text: str) -> Tensor:
         text = self.text_pipeline.run(text)
         tokens = self.tokenizer.tokens2ids(text)
-        tokens.append(self.tokenizer.special_tokens.eos_id)
+        length = len(tokens)
         tokens = self.pad_tokens(tokens)
-        return torch.LongTensor(tokens)
+        return torch.LongTensor(tokens), length
 
     def prepocess_lines(self, data: str) -> List[str]:
         return [
@@ -73,9 +74,22 @@ class DataLoader(BaseData):
             audio_pipeline: IPipeline,
             tokenizer: ITokenizer,
             batch_size: int,
-            max_len: int
+            max_len: int,
+            sampling_rate: int,
+            hop_length: int,
+            fields_sep: str,
+            csv_file_keys: object
             ) -> None:
-        super().__init__(text_pipeline, audio_pipeline, tokenizer, max_len)
+        super().__init__(
+                text_pipeline,
+                audio_pipeline,
+                tokenizer,
+                max_len,
+                sampling_rate,
+                hop_length,
+                fields_sep,
+                csv_file_keys
+                )
         self.batch_size = batch_size
         self.df = pd.read_csv(file_path)
         self.num_examples = len(self.df)
@@ -104,8 +118,10 @@ class DataLoader(BaseData):
     def get_texts(self, start_idx: int, end_idx: int) -> Tensor:
         args = self.df[self.csv_file_keys.text].iloc[start_idx: end_idx]
         result = list(map(self._get_padded_tokens, args))
+        length = list(map(lambda x: x[1], result))
+        result = list(map(lambda x: x[0], result))
         result = torch.stack(result, dim=0)
-        return result
+        return result, length
 
     def __iter__(self):
         self.idx = 0
