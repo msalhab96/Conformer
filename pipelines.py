@@ -1,7 +1,7 @@
 
 
 from utils import IPipeline, load_audio
-from typing import Union
+from typing import Tuple, Union
 from torch import Tensor
 from pathlib import Path
 from torchaudio.transforms import (
@@ -24,6 +24,8 @@ class AudioPipeline(IPipeline):
             n_time_masks: int,
             ps: float,
             max_freq_mask: int,
+            *args, 
+            **kwargs
             ) -> None:
         super().__init__()
         self.sampling_rate = sampling_rate
@@ -78,7 +80,7 @@ class AudioPipeline(IPipeline):
 class TextPipeline(IPipeline):
     """pass the text through different transformation layers
     """
-    def __init__(self) -> None:
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__()
 
     def run(
@@ -88,3 +90,10 @@ class TextPipeline(IPipeline):
         text = text.lower()
         text = text.strip()
         return text
+
+
+def get_pipelines(aud_args: dict) -> Tuple[IPipeline, IPipeline]:
+    return (
+        TextPipeline(),
+        AudioPipeline(**aud_args)
+    )
