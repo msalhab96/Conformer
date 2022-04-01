@@ -13,7 +13,9 @@ class AdamWarmup:
             warmup_staps: int,
             model_dim: int,
             scaler: float,
-            step_size: int
+            step_size: int,
+            *args,
+            **kwargs
             ):
         self.optimizer = Adam(
             parameters,
@@ -31,10 +33,10 @@ class AdamWarmup:
 
     def get_lr(self, step: int) -> float:
         return self.peak * min(
-            1 / math.sqrt(step), 
+            1 / math.sqrt(step),
             step * self.inv_warmup_staps
         )
-    
+
     def step(self) -> None:
         self.counter += self.step_size
         lr = self.get_lr(self.counter)
@@ -44,3 +46,6 @@ class AdamWarmup:
 
     def zero_grad(self):
         self.optimizer.zero_grad()
+
+    def state_dict(self):
+        return self.optimizer.state_dict()
