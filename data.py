@@ -14,7 +14,6 @@ class BaseData:
             text_pipeline: IPipeline,
             audio_pipeline: IPipeline,
             tokenizer: ITokenizer,
-            max_len: int,
             sampling_rate: int,
             hop_length: int,
             fields_sep: str,
@@ -23,7 +22,7 @@ class BaseData:
         self.text_pipeline = text_pipeline
         self.audio_pipeline = audio_pipeline
         self.tokenizer = tokenizer
-        self.max_len = max_len
+        self.max_len = 0
         self.sampling_rate = sampling_rate
         self.hop_length = hop_length
         self.sep = fields_sep
@@ -37,6 +36,7 @@ class BaseData:
         max_len = 1 + math.ceil(
             max_duration * self.sampling_rate / self.hop_length
             )
+        # Updates teh max_len to be used for text padding
         self.max_len = max_len
         aud = self.audio_pipeline.run(aud_path)
         assert aud.shape[0] == 1, f'expected audio of 1 channels got \
