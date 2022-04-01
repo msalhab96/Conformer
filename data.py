@@ -1,91 +1,122 @@
-from torchaudio.transforms import (
-    Resample,
-    TimeMasking,
-    MelSpectrogram,
-    FrequencyMasking
-)
-from utils import (
-    IPipeline,
-    load_audio
-    )
+import math
+import pandas as pd
+import torch
+from tokenizer import ITokenizer
+from utils import IPipeline
 from pathlib import Path
-from typing import Union
+from typing import List, Union
 from torch import Tensor
 
 
-class AudioPipeline(IPipeline):
-    """Loads the audio and pass it through different transformation layers
-    """
+class BaseData:
     def __init__(
             self,
+            text_pipeline: IPipeline,
+            audio_pipeline: IPipeline,
+            tokenizer: ITokenizer,
+            max_len: int,
             sampling_rate: int,
-            n_mel_channels: int,
-            win_length: int,
             hop_length: int,
-            n_time_masks: int,
-            ps: float,
-            max_freq_mask: int
+            fields_sep: str,
+            csv_file_keys: object
             ) -> None:
-        super().__init__()
+        self.text_pipeline = text_pipeline
+        self.audio_pipeline = audio_pipeline
+        self.tokenizer = tokenizer
+        self.max_len = max_len
         self.sampling_rate = sampling_rate
-        self.n_mel_channels = n_mel_channels
-        self.win_length = win_length
         self.hop_length = hop_length
-        self.n_time_masks = n_time_masks
-        self.ps = ps
-        self.max_freq_mask = max_freq_mask
+        self.sep = fields_sep
+        self.csv_file_keys = csv_file_keys
 
-    def run(
+    def _get_padded_aud(
             self,
-            audio_path: Union[str, Path],
-            *args,
-            **kwargs
+            aud_path: Union[str, Path],
+            max_duration: int,
             ) -> Tensor:
-        x, sr = load_audio(audio_path)
-        x = self._get_resampler(sr)(x)
-        x = self._get_mel_spec_transformer()(x)
-        x = self._mask(x)
-        x = x.permute(0, 2, 1)
-        return x
-
-    def _get_resampler(self, sr: int):
-        return Resample(sr, self.sampling_rate)
-
-    def _get_mel_spec_transformer(self):
-        return MelSpectrogram(
-            self.sampling_rate,
-            n_mels=self.n_mel_channels
+        max_len = 1 + math.ceil(
+            max_duration * self.sampling_rate / self.hop_length
             )
+        aud = self.audio_pipeline.run(aud_path)
+        assert aud.shape[0] == 1, f'expected audio of 1 channels got \
+            {aud_path} with {aud.shape[0]} channels'
+        return self.pad_mels(aud, max_len)
 
-    @property
-    def freq_mask(self):
-        return FrequencyMasking(self.F)
+    def _get_padded_tokens(self, text: str) -> Tensor:
+        text = self.text_pipeline.run(text)
+        tokens = self.tokenizer.tokens2ids(text)
+        tokens.append(self.tokenizer.special_tokens.eos_id)
+        tokens = self.pad_tokens(tokens)
+        return torch.LongTensor(tokens)
 
-    def _get_time_mask(self, max_length: int):
-        return TimeMasking(
-            int(max_length * self.ps),
-            p=self.ps
-        )
+    def prepocess_lines(self, data: str) -> List[str]:
+        return [
+            item.split(self.sep)
+            for item in data
+        ]
 
-    def _mask(self, x: Tensor) -> Tensor:
-        max_length = x.shape[-1]
-        time_mask = self._get_time_mask(max_length)
-        x = self.freq_mask(x)
-        for _ in range(self.n_time_masks):
-            x = time_mask(x)
-        return x
+    def pad_mels(self, mels: Tensor, max_len: int) -> Tensor:
+        n = max_len - mels.shape[1]
+        zeros = torch.zeros(size=(1, n, mels.shape[-1]))
+        return torch.cat([zeros, mels], dim=1)
+
+    def pad_tokens(self, tokens: list) -> Tensor:
+        length = self.max_len - len(tokens)
+        return tokens + [self.tokenizer.special_tokens.pad_id] * length
 
 
-class TextPipeline(IPipeline):
-    """pass the text through different transformation layers
-    """
-    def __init__(self) -> None:
-        super().__init__()
-
-    def run(
+class DataLoader(BaseData):
+    def __init__(
             self,
-            text: str
-            ) -> str:
-        text = text.lower()
-        text = text.strip()
-        return text
+            file_path: Union[str, Path],
+            text_pipeline: IPipeline,
+            audio_pipeline: IPipeline,
+            tokenizer: ITokenizer,
+            batch_size: int,
+            max_len: int
+            ) -> None:
+        super().__init__(text_pipeline, audio_pipeline, tokenizer, max_len)
+        self.batch_size = batch_size
+        self.df = pd.read_csv(file_path)
+        self.num_examples = len(self.df)
+        self.idx = 0
+
+    def __len__(self):
+        length = self.num_examples // self.batch_size
+        mod = self.num_examples % self.batch_size
+        return length + 1 if mod > 0 else length
+
+    def get_max_duration(self, start_idx: int, end_idx: int) -> float:
+        return self.df[
+            self.csv_file_keys.duration
+            ].iloc[start_idx: end_idx].max()
+
+    def get_audios(self, start_idx: int, end_idx: int) -> Tensor:
+        max_duration = self.get_max_duration(start_idx, end_idx)
+        result = list(map(
+            self._get_padded_aud,
+            self.df[self.csv_file_keys.path].iloc[start_idx: end_idx],
+            [max_duration] * (end_idx - start_idx)
+            ))
+        result = torch.stack(result, dim=1)
+        return torch.squeeze(result)
+
+    def get_texts(self, start_idx: int, end_idx: int) -> Tensor:
+        args = self.df[self.csv_file_keys.text].iloc[start_idx: end_idx]
+        result = list(map(self._get_padded_tokens, args))
+        result = torch.stack(result, dim=0)
+        return result
+
+    def __iter__(self):
+        self.idx = 0
+        while True:
+            start = self.idx * self.batch_size
+            end = (self.idx + 1) * self.batch_size
+            end = min(end, self.num_examples)
+            if start > self.num_examples or start == end:
+                break
+            self.idx += 1
+            yield (
+                self.get_audios(start, end),
+                self.get_texts(start, end)
+                )
