@@ -19,6 +19,7 @@ data:
     number_of_masks: 10
   training_file: 'files/train.csv'
   testing_file: 'files/test.csv'
+  files_sep: ';'
   csv_file_keys:
     duration: 'duration'
     path: 'path'
@@ -51,7 +52,17 @@ model:
       dk: 8
       p_dropout: ${model.p_dropout}
       device: ${device}
-    num_mhsa: 4
+    conv_mod_params:
+      enc_dim: ${model.enc.enc_dim}
+      scaling_factor: 2
+      kernel_size: 31
+      p_dropout: ${model.p_dropout}
+    feed_forward_params:
+      enc_dim: ${model.enc.enc_dim}
+      scaling_factor: 2
+      p_dropout: ${model.p_dropout}
+      residual_scaler: 0.5
+    num_blocks: 4
     p_dropout: ${model.p_dropout}
   dec:
     enc_dim: ${model.enc.enc_dim}
