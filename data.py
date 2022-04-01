@@ -74,7 +74,6 @@ class DataLoader(BaseData):
             audio_pipeline: IPipeline,
             tokenizer: ITokenizer,
             batch_size: int,
-            max_len: int,
             sampling_rate: int,
             hop_length: int,
             fields_sep: str,
@@ -84,7 +83,6 @@ class DataLoader(BaseData):
                 text_pipeline,
                 audio_pipeline,
                 tokenizer,
-                max_len,
                 sampling_rate,
                 hop_length,
                 fields_sep,
@@ -121,7 +119,7 @@ class DataLoader(BaseData):
         length = list(map(lambda x: x[1], result))
         result = list(map(lambda x: x[0], result))
         result = torch.stack(result, dim=0)
-        return result, length
+        return result, torch.LongTensor(length)
 
     def __iter__(self):
         self.idx = 0
