@@ -1,0 +1,25 @@
+checkpoint: null
+device: 'cuda'
+
+tokenizer:
+  tokenizer_file: null
+  vocab_path: 'files/vocab.txt'
+
+data:
+  sampling_rate: 16000
+  n_mels: 80
+  hop_length: 160
+  n_ftt: 400
+  win_length: ${data.n_ftt}
+  spec_aug:
+  freq_mask:
+    max_freq: 27
+  time_mask:
+    ps: 0.05
+    number_of_masks: 10
+  training_file: 'files/train.csv'
+  testing_file: 'files/test.csv'
+  csv_file_keys:
+    duration: 'duration'
+    path: 'path'
+    text: 'text'
