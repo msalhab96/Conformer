@@ -121,22 +121,17 @@ class MHSA(nn.Module):
     @lru_cache(maxsize=2)
     def get_positionals(self, max_length: int) -> Tensor:
         """Create Positionals tensor to be added to the input
-
         Args:
-            max_length (int): The maximum length
-
+            max_length (int): The maximum length of the positionals sequence.
         Returns:
             Tensor: Positional tensor
         """
-        result = torch.zeros(max_length, self.enc_dim)
-        pos = torch.arange(0, self.enc_dim).repeat(max_length, 1)
-        i = torch.arange(0, max_length).repeat(self.enc_dim, 1).T
-        result[:, 1::2] = torch.sin(
-            pos[:, 1::2] / (10000 ** ((2 * i[:, 1::2]) / self.dk))
-            )
-        result[:, 0::2] = torch.cos(
-            pos[:, 0::2] / (10000 ** ((2 * i[:, 0::2]) / self.dk))
-            )
+        result = torch.zeros(max_length, self.enc_dim, dtype=torch.float)
+        for pos in range(max_length):
+            for i in range(0, self.enc_dim, 2):
+                denominator = pow(10000, 2 * i / self.enc_dim)
+                result[pos, i] = math.sin(pos / denominator)
+                result[pos, i + 1] = math.cos(pos / denominator)
         return result
 
     def _reshape(self, *args) -> List[Tensor]:
