@@ -34,12 +34,12 @@ class MHSA(nn.Module):
     def __init__(
             self,
             enc_dim: int,
-            dk: int,
+            h: int,
             p_dropout: float,
             device: str
             ) -> None:
         super().__init__()
-        assert enc_dim % dk == 0, 'enc_dim is not divisible by dk'
+        assert enc_dim % h == 0, 'enc_dim is not divisible by h'
         self.fc_key = nn.Linear(
             in_features=enc_dim,
             out_features=enc_dim,
@@ -55,9 +55,9 @@ class MHSA(nn.Module):
         self.lnorm = nn.LayerNorm(enc_dim)
         self.dropout = nn.Dropout(p_dropout)
         self.enc_dim = enc_dim
-        self.dk = dk
-        self.sqrt_dk = math.sqrt(dk)
-        self.h = enc_dim // dk
+        self.h = h
+        self.dk = enc_dim // h
+        self.sqrt_dk = math.sqrt(self.dk)
         self.softmax = nn.Softmax(dim=-1)
         self.device = device
 
@@ -66,12 +66,12 @@ class MHSA(nn.Module):
         scaled Dot-Product Attention
 
         Args:
-            Q (Tensor): The Query tensor of shape [B, M, dk, h]
-            K (Tensor): The Key tensor of shape [B, M, dk, h]
+            Q (Tensor): The Query tensor of shape [B, M, h, dk]
+            K (Tensor): The Key tensor of shape [B, M, h, dk]
 
         Returns:
             Tensor: The result of matmul operation of shape
-            [B, M, dk, dk]
+            [B, M, h, h]
         """
         return torch.matmul(Q, K.permute(0, 1, 3, 2))
 
@@ -84,12 +84,12 @@ class MHSA(nn.Module):
         by calculating softmax(matmul(Q, K.T)/sqrt(dk))
 
         Args:
-            Q (Tensor): The Query tensor of shape [B, M, dk, h]
-            K (Tensor): The Key tensor of shape [B, M, dk, h]
+            Q (Tensor): The Query tensor of shape [B, M, h, dk]
+            K (Tensor): The Key tensor of shape [B, M, h, dk]
 
         Returns:
             Tensor: The scaled attention map of shape
-            [B, M, dk, dk]
+            [B, M, h, h]
         """
         result = self._key_query_matmul(Q, K)
         result = result / self.sqrt_dk
@@ -105,9 +105,9 @@ class MHSA(nn.Module):
         by calculating softmax(matmul(Q, K.T)/sqrt(dk)).V
 
         Args:
-            Q (Tensor): The Query tensor of shape [B, M, dk, h]
-            K (Tensor): The Key tensor of shape [B, M, dk, h]
-            V (Tensor): The Value tensor of shape [B, M, dk, h]
+            Q (Tensor): The Query tensor of shape [B, M, h, dk]
+            K (Tensor): The Key tensor of shape [B, M, h, dk]
+            V (Tensor): The Value tensor of shape [B, M, h, dk]
 
         Returns:
             Tensor: The scaled attention map of shape
@@ -136,13 +136,13 @@ class MHSA(nn.Module):
 
     def _reshape(self, *args) -> List[Tensor]:
         """Reshabes all the given list of tensor
-        from [B, M, N] to [B, M, dk, h]
+        from [B, M, N] to [B, M, h, dk]
 
         Returns:
             List[Tensor]: list of all reshaped tensors
         """
         return [
-            item.view(-1, item.shape[1], self.dk, self.h)
+            item.view(-1, item.shape[1], self.h, self.dk)
             for item in args
         ]
 

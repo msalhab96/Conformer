@@ -49,7 +49,7 @@ model:
     out_channels: 256 # subsampling layer
     mhsa_params:
       enc_dim: ${model.enc.enc_dim}
-      dk: 8
+      h: 8 # number of heads
       p_dropout: ${model.p_dropout}
       device: ${device}
     conv_mod_params:
