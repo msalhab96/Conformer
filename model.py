@@ -52,6 +52,10 @@ class MHSA(nn.Module):
             in_features=enc_dim,
             out_features=enc_dim,
         )
+        self.proj_fc = nn.Linear(
+            in_features=2 * enc_dim,
+            out_features=enc_dim,
+        )
         self.lnorm = nn.LayerNorm(enc_dim)
         self.dropout = nn.Dropout(p_dropout)
         self.enc_dim = enc_dim
@@ -61,20 +65,6 @@ class MHSA(nn.Module):
         self.softmax = nn.Softmax(dim=-1)
         self.device = device
 
-    def _key_query_matmul(self, Q: Tensor, K: Tensor) -> Tensor:
-        """Performs the Matmul operation in
-        scaled Dot-Product Attention
-
-        Args:
-            Q (Tensor): The Query tensor of shape [B, M, h, dk]
-            K (Tensor): The Key tensor of shape [B, M, h, dk]
-
-        Returns:
-            Tensor: The result of matmul operation of shape
-            [B, M, h, h]
-        """
-        return torch.matmul(Q, K.permute(0, 1, 3, 2))
-
     def _get_scaled_att(
             self,
             Q: Tensor,
@@ -82,41 +72,37 @@ class MHSA(nn.Module):
             ) -> Tensor:
         """Calculates the scaled attention map
         by calculating softmax(matmul(Q, K.T)/sqrt(dk))
-
         Args:
-            Q (Tensor): The Query tensor of shape [B, M, h, dk]
-            K (Tensor): The Key tensor of shape [B, M, h, dk]
-
+            Q (Tensor): The Query tensor of shape [h * B, Tq, dk]
+            K (Tensor): The Key tensor of shape [h * B, dk, Tk]
         Returns:
-            Tensor: The scaled attention map of shape
-            [B, M, h, h]
+            Tensor: The scaled attention weights of shape
+            [B * h, Tq, Tk]
         """
-        result = self._key_query_matmul(Q, K)
+        result = torch.matmul(Q, K)
         result = result / self.sqrt_dk
         return self.softmax(result)
 
-    def perform_self_att(
+    def perform_att(
             self,
             Q: Tensor,
             K: Tensor,
             V: Tensor
             ) -> Tensor:
-        """Perform multi head scaled attention
+        """Performs multi-head scaled attention
         by calculating softmax(matmul(Q, K.T)/sqrt(dk)).V
-
         Args:
-            Q (Tensor): The Query tensor of shape [B, M, h, dk]
-            K (Tensor): The Key tensor of shape [B, M, h, dk]
-            V (Tensor): The Value tensor of shape [B, M, h, dk]
-
+            Q (Tensor): The Query tensor of shape [h * B, Tq, dk]
+            K (Tensor): The Key tensor of shape [h * B, dk, Tk]
+            V (Tensor): The Value tensor of shape [h * B, Tk, dk]
         Returns:
-            Tensor: The scaled attention map of shape
-            [B, M, dk * h]
+            Tuple[Tensor, Tensor]: The attention matrix of shape
+            [B * h, Tq, Tk] and the scaled attention value of
+            shape [B * h, Tq, dk].
         """
-        (b, m, *_) = Q.shape
         att = self._get_scaled_att(Q, K)
         result = torch.matmul(att, V)
-        return result.view(b, m, -1)
+        return att, result
 
     @lru_cache(maxsize=2)
     def get_positionals(self, max_length: int) -> Tensor:
@@ -136,14 +122,39 @@ class MHSA(nn.Module):
 
     def _reshape(self, *args) -> List[Tensor]:
         """Reshabes all the given list of tensor
-        from [B, M, N] to [B, M, h, dk]
-
+        from [B, T, N] to [B, T, h, dk]
         Returns:
             List[Tensor]: list of all reshaped tensors
         """
         return [
-            item.view(-1, item.shape[1], self.h, self.dk)
+            item.contiguous().view(-1, item.shape[1], self.h, self.dk)
             for item in args
+        ]
+
+    def _pre_permute(self, *args) -> List[Tensor]:
+        """Permutes all the given list of tensors
+        from [B, T, h, dk] to become [h, B, T, dk].
+
+        Returns:
+            List[Tensor]: List of all permuted tensors.
+        """
+        return [
+            item.permute(2, 0, 1, 3)
+            for item in args
+        ]
+
+    def _change_dim(self, *args) -> List[Tensor]:
+        """Changes the dimensionality of all passed tensores
+        from [B, T, N] to [B * h, T, dk]
+
+        Returns:
+            List[Tensor]: List of the modified tensors.
+        """
+        result = self._reshape(*args)  # [B, T, h, dk]
+        result = self._pre_permute(*result)  # [h, B, T, dk]
+        return [
+            item.contiguous().view(-1, item.shape[2], item.shape[3])
+            for item in result
         ]
 
     def forward(self, inp: Tensor) -> Tensor:
@@ -157,15 +168,19 @@ class MHSA(nn.Module):
             and passing it through multi-head self-attention
         """
         out = self.lnorm(inp)
-        K = self.fc_key(out)
-        Q = self.fc_query(out)
-        V = self.fc_value(out)
-        max_length = inp.shape[1]
-        positionals = self.get_positionals(max_length).to(self.device)
-        out = out + positionals
-        (Q, K, V) = self._reshape(Q, K, V)
-        out = self.perform_self_att(Q, K, V)
-        out = self.dropout(out)
+        [b, s, _] = inp.shape
+        K = self.fc_key(inp)
+        Q = self.fc_query(inp)
+        V = self.fc_value(inp)
+        (Q, K, V) = self._change_dim(Q, K, V)  # [h * B, T, dk]
+        K = K.permute(0, 2, 1)  # [h, T, B, dk]
+        _, result = self.perform_att(Q, K, V)
+        result = result.view(self.h, b, s, self.dk)
+        result = result.permute(1, 2, 0, 3)
+        result = result.contiguous().view(b, s, -1)
+        result = torch.cat([inp, result], dim=-1)
+        result = self.proj_fc(result)
+        out = self.dropout(result)
         return inp + out
 
 
@@ -321,8 +336,8 @@ class Encoder(nn.Module):
         self.dropout = nn.Dropout(p_dropout)
         self.conformers_layers = nn.ModuleList([
             ConformerBlock(
-                enc_dim, 
-                mhsa_params, 
+                enc_dim,
+                mhsa_params,
                 conv_mod_params,
                 feed_forward_params
                 )
