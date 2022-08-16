@@ -153,7 +153,9 @@ class MHSA(nn.Module):
         result = self._reshape(*args)  # [B, T, h, dk]
         result = self._pre_permute(*result)  # [h, B, T, dk]
         return [
-            item.contiguous().view(-1, item.shape[2], item.shape[3])
+            item.permute(1, 0, 2, 3).contiguous().view(
+                -1, item.shape[2], item.shape[3]
+                )
             for item in result
         ]
 
@@ -175,8 +177,8 @@ class MHSA(nn.Module):
         (Q, K, V) = self._change_dim(Q, K, V)  # [h * B, T, dk]
         K = K.permute(0, 2, 1)  # [h, T, B, dk]
         _, result = self.perform_att(Q, K, V)
-        result = result.view(self.h, b, s, self.dk)
-        result = result.permute(1, 2, 0, 3)
+        result = result.view(b, self.h, s, self.dk)
+        result = result.permute(0, 2, 1, 3)
         result = result.contiguous().view(b, s, -1)
         result = torch.cat([inp, result], dim=-1)
         result = self.proj_fc(result)
